@@ -237,9 +237,24 @@ jobs:
             -o /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
 
-      - name: Compile APK
-        run: /tmp/gradle-8.9/bin/gradle --no-daemon assembleDebug
 
+      - name: Compile APK
+        run: |
+          set -o pipefail
+          /tmp/gradle-8.9/bin/gradle \
+            --no-daemon \
+            --stacktrace \
+            --info \
+            assembleDebug 2>&1 | tee gradle-error.log
+
+      - name: Upload diagnostic log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZeroCost-Keyboard-Diagnostic
+          path: gradle-error.log
+          if-no-files-found: ignore
+          
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
         with:
