@@ -1,5 +1,5 @@
 
-name: Build ZeroCost Keyboard APK
+name: Build ZeroCost Floating APK
 
 on:
   workflow_dispatch:
@@ -15,27 +15,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Prepare Java
-        uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install JDK
-        uses: actions/setup-java@v6
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Install Android platform
-        run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Create Android project
+      - name: Create ZeroCost Floating project
         shell: bash
         run: |
-          mkdir -p app/src/main/java/com/zerocost/keyboard
-          mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/java/com/zerocost/floating
 
           cat > settings.gradle.kts <<'EOF'
           pluginManagement {
@@ -52,7 +50,7 @@ jobs:
                   mavenCentral()
               }
           }
-          rootProject.name = "ZeroCostKeyboard"
+          rootProject.name = "ZeroCostFloating"
           include(":app")
           EOF
 
@@ -68,11 +66,13 @@ jobs:
               id("com.android.application")
               id("org.jetbrains.kotlin.android")
           }
+
           android {
-              namespace = "com.zerocost.keyboard"
+              namespace = "com.zerocost.floating"
               compileSdk = 35
+
               defaultConfig {
-                  applicationId = "com.zerocost.keyboard"
+                  applicationId = "com.zerocost.floating"
                   minSdk = 23
                   targetSdk = 35
                   versionCode = 1
@@ -83,107 +83,230 @@ jobs:
 
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
               <application
-                  android:label="ZeroCost Keyboard"
-                  android:allowBackup="false">
-                  <service
-                      android:name=".ZeroCostIme"
-                      android:label="ZeroCost Keyboard"
-                      android:permission="android.permission.BIND_INPUT_METHOD"
+                  android:label="ZeroCost Flotante"
+                  android:allowBackup="false"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
                       android:exported="true">
                       <intent-filter>
-                          <action android:name="android.view.InputMethod" />
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
-                      <meta-data
-                          android:name="android.view.im"
-                          android:resource="@xml/method" />
-                  </service>
+                  </activity>
+
+                  <service
+                      android:name=".FloatingService"
+                      android:exported="false" />
               </application>
           </manifest>
           EOF
 
-          cat > app/src/main/res/xml/method.xml <<'EOF'
-          <input-method xmlns:android="http://schemas.android.com/apk/res/android"
-              android:supportsSwitchingToNextInputMethod="false" />
-          EOF
+          cat > app/src/main/java/com/zerocost/floating/MainActivity.kt <<'EOF'
+          package com.zerocost.floating
 
-          cat > app/src/main/java/com/zerocost/keyboard/ZeroCostIme.kt <<'EOF'
-          package com.zerocost.keyboard
-
-          import android.inputmethodservice.InputMethodService
+          import android.app.Activity
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.Settings
           import android.graphics.Color
-          import android.view.View
           import android.view.Gravity
-          import android.view.inputmethod.InputConnection
           import android.widget.Button
           import android.widget.LinearLayout
           import android.widget.TextView
-          import java.security.SecureRandom
 
-          class ZeroCostIme : InputMethodService() {
-              private val rng = SecureRandom()
-              private var pendingText = ""
-              private lateinit var preview: TextView
-              private lateinit var status: TextView
+          class MainActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
 
-              override fun onCreateInputView(): View {
-                  val root = LinearLayout(this).apply {
+                  val layout = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       gravity = Gravity.CENTER
-                      setPadding(16, 12, 16, 12)
-                      setBackgroundColor(Color.rgb(28, 32, 42))
+                      setPadding(28, 28, 28, 28)
                   }
 
-                  val title = TextView(this).apply {
-                      text = "ZeroCost Keyboard"
-                      textSize = 20f
-                      setTextColor(Color.WHITE)
-                      gravity = Gravity.CENTER
-                  }
-                  root.addView(title)
+                  layout.addView(TextView(this).apply {
+                      text = "ZeroCost Flotante"
+                      textSize = 26f
+                      setTextColor(Color.rgb(0, 130, 190))
+                  })
 
-                  preview = TextView(this).apply {
-                      text = "Genera un texto para insertarlo"
+                  layout.addView(TextView(this).apply {
+                      text = "Genera usuarios y contraseñas sin guardarlos."
                       textSize = 16f
-                      setTextColor(Color.WHITE)
-                      gravity = Gravity.CENTER
-                      setPadding(4, 14, 4, 14)
-                  }
-                  root.addView(preview)
+                      setPadding(0, 16, 0, 24)
+                  })
 
-                  status = TextView(this).apply {
-                      text = "Todo se genera localmente"
-                      textSize = 12f
-                      setTextColor(Color.LTGRAY)
-                      gravity = Gravity.CENTER
-                  }
-                  root.addView(status)
-
-                  addButton(root, "Generar usuario") {
-                      pendingText = makeUsername()
-                      preview.text = pendingText
-                      status.text = "Usuario listo para insertar"
-                  }
-
-                  addButton(root, "Generar contraseña segura") {
-                      pendingText = makePassword()
-                      preview.text = pendingText
-                      status.text = "Contraseña lista para insertar"
-                  }
-
-                  addButton(root, "Insertar en el campo activo") {
-                      val connection: InputConnection? = currentInputConnection
-                      if (connection != null && pendingText.isNotEmpty()) {
-                          connection.commitText(pendingText, 1)
-                          pendingText = ""
-                          preview.text = "Texto insertado"
-                          status.text = "Genera otro texto cuando lo necesites"
-                      } else {
-                          status.text = "Genera un texto primero"
+                  val start = Button(this).apply {
+                      text = "Activar ventana flotante"
+                      isAllCaps = false
+                      setOnClickListener {
+                          if (Settings.canDrawOverlays(this@MainActivity)) {
+                              startService(
+                                  Intent(this@MainActivity, FloatingService::class.java)
+                              )
+                              finish()
+                          } else {
+                              startActivity(
+                                  Intent(
+                                      Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                      Uri.parse("package:$packageName")
+                                  )
+                              )
+                          }
                       }
                   }
 
-                  return root
+                  layout.addView(
+                      start,
+                      LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                  )
+
+                  setContentView(layout)
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/zerocost/floating/FloatingService.kt <<'EOF'
+          package com.zerocost.floating
+
+          import android.app.Service
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Context
+          import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.os.IBinder
+          import android.provider.Settings
+          import android.view.Gravity
+          import android.view.WindowManager
+          import android.view.View
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import android.widget.Toast
+          import java.security.SecureRandom
+
+          class FloatingService : Service() {
+              private lateinit var windowManager: WindowManager
+              private var panel: View? = null
+              private val random = SecureRandom()
+              private var username = ""
+              private var password = ""
+              private lateinit var userPreview: TextView
+              private lateinit var passPreview: TextView
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onStartCommand(
+                  intent: Intent?,
+                  flags: Int,
+                  startId: Int
+              ): Int {
+                  if (!Settings.canDrawOverlays(this)) {
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  if (panel == null) showPanel()
+                  return START_NOT_STICKY
+              }
+
+              private fun showPanel() {
+                  windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(14, 12, 14, 12)
+                      background = GradientDrawable().apply {
+                          setColor(Color.rgb(27, 34, 47))
+                          cornerRadius = 24f
+                          setStroke(2, Color.rgb(0, 190, 230))
+                      }
+                  }
+
+                  root.addView(TextView(this).apply {
+                      text = "ZeroCost"
+                      textSize = 21f
+                      typeface = Typeface.DEFAULT_BOLD
+                      setTextColor(Color.rgb(80, 220, 255))
+                      gravity = Gravity.CENTER
+                      setPadding(0, 0, 0, 8)
+                  })
+
+                  userPreview = addPreview(root, "Usuario: todavía no generado")
+                  addButton(root, "Generar usuario") {
+                      username = makeUsername()
+                      userPreview.text = "Usuario: $username"
+                  }
+                  addButton(root, "Copiar usuario") {
+                      if (username.isEmpty()) {
+                          toast("Genera primero un usuario")
+                      } else {
+                          copyText("Usuario", username)
+                      }
+                  }
+
+                  passPreview = addPreview(root, "Contraseña: todavía no generada")
+                  addButton(root, "Generar contraseña segura") {
+                      password = makePassword()
+                      passPreview.text = "Contraseña: $password"
+                  }
+                  addButton(root, "Copiar contraseña") {
+                      if (password.isEmpty()) {
+                          toast("Genera primero una contraseña")
+                      } else {
+                          copyText("Contraseña", password)
+                      }
+                  }
+
+                  addButton(root, "Cerrar ventana") {
+                      stopSelf()
+                  }
+
+                  val params = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                          WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.END
+                      x = 12
+                      y = 150
+                  }
+
+                  try {
+                      windowManager.addView(root, params)
+                      panel = root
+                  } catch (_: Exception) {
+                      stopSelf()
+                      toast("No se pudo abrir la ventana flotante")
+                  }
+              }
+
+              private fun addPreview(
+                  root: LinearLayout,
+                  initialText: String
+              ): TextView {
+                  return TextView(this).apply {
+                      text = initialText
+                      textSize = 13f
+                      setTextColor(Color.WHITE)
+                      setPadding(4, 8, 4, 8)
+                      root.addView(this)
+                  }
               }
 
               private fun addButton(
@@ -199,7 +322,7 @@ jobs:
                   root.addView(
                       button,
                       LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          260,
                           LinearLayout.LayoutParams.WRAP_CONTENT
                       )
                   )
@@ -207,59 +330,78 @@ jobs:
 
               private fun makeUsername(): String {
                   val first = listOf(
-                      "luna", "nube", "pixel", "nexo", "brisa",
-                      "cobre", "delta", "kiwi", "nova", "rayo",
-                      "zen", "eco", "astro", "coral"
+                      "nova", "pixel", "luna", "nexo", "brisa",
+                      "astro", "coral", "kiwi", "rayo", "zen",
+                      "delta", "nube", "cobre", "eco"
                   )
                   val second = listOf(
-                      "azul", "verde", "sol", "luz", "fox",
-                      "wave", "star", "cloud", "fire", "sky"
+                      "fox", "wave", "star", "sky", "sol",
+                      "luz", "fire", "blue", "cloud", "max"
                   )
-                  return first[rng.nextInt(first.size)] +
-                      second[rng.nextInt(second.size)] +
-                      (100 + rng.nextInt(900)).toString()
+                  return first[random.nextInt(first.size)] +
+                      second[random.nextInt(second.size)] +
+                      (100 + random.nextInt(900)).toString()
               }
 
               private fun makePassword(): String {
                   val chars =
-                      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#\$%&*-_+"
+                      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%&*-_+"
                   return (1..20).map {
-                      chars[rng.nextInt(chars.length)]
+                      chars[random.nextInt(chars.length)]
                   }.joinToString("")
+              }
+
+              private fun copyText(label: String, value: String) {
+                  val clipboard =
+                      getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                  clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+                  toast("$label copiado. Vuelve al campo y pega.")
+              }
+
+              private fun toast(message: String) {
+                  Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+              }
+
+              override fun onDestroy() {
+                  panel?.let {
+                      try {
+                          windowManager.removeView(it)
+                      } catch (_: Exception) {
+                      }
+                  }
+                  panel = null
+                  username = ""
+                  password = ""
+                  super.onDestroy()
               }
           }
           EOF
 
       - name: Download Gradle
         run: |
-          curl -fsSL \
-            https://services.gradle.org/distributions/gradle-8.9-bin.zip \
-            -o /tmp/gradle.zip
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
-
 
       - name: Compile APK
         run: |
           set -o pipefail
-          /tmp/gradle-8.9/bin/gradle \
-            --no-daemon \
-            --stacktrace \
-            --info \
-            assembleDebug 2>&1 | tee gradle-error.log
+          /tmp/gradle-8.9/bin/gradle --no-daemon --stacktrace assembleDebug 2>&1 | tee gradle-error.log
 
-      - name: Upload diagnostic log
-        if: failure()
+      - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ZeroCost-Keyboard-Diagnostic
-          path: gradle-error.log
-          if-no-files-found: ignore
-          
-      - name: Publish APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ZeroCost-Keyboard-APK
+          name: ZeroCost-Floating-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload build log if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZeroCost-Floating-Diagnostic
+          path: gradle-error.log
+          if-no-files-found: ignore
+          retention-days: 7
           
