@@ -1,0 +1,250 @@
+
+name: Build ZeroCost Keyboard APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Prepare Java
+        uses: actions/checkout@v4
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Create Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/zerocost/keyboard
+          mkdir -p app/src/main/res/xml
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "ZeroCostKeyboard"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.zerocost.keyboard"
+              compileSdk = 35
+              defaultConfig {
+                  applicationId = "com.zerocost.keyboard"
+                  minSdk = 23
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="ZeroCost Keyboard"
+                  android:allowBackup="false">
+                  <service
+                      android:name=".ZeroCostIme"
+                      android:label="ZeroCost Keyboard"
+                      android:permission="android.permission.BIND_INPUT_METHOD"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.view.InputMethod" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.view.im"
+                          android:resource="@xml/method" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/xml/method.xml <<'EOF'
+          <input-method xmlns:android="http://schemas.android.com/apk/res/android"
+              android:supportsSwitchingToNextInputMethod="false" />
+          EOF
+
+          cat > app/src/main/java/com/zerocost/keyboard/ZeroCostIme.kt <<'EOF'
+          package com.zerocost.keyboard
+
+          import android.inputmethodservice.InputMethodService
+          import android.graphics.Color
+          import android.view.View
+          import android.view.Gravity
+          import android.view.inputmethod.InputConnection
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import java.security.SecureRandom
+
+          class ZeroCostIme : InputMethodService() {
+              private val rng = SecureRandom()
+              private var pendingText = ""
+              private lateinit var preview: TextView
+              private lateinit var status: TextView
+
+              override fun onCreateInputView(): View {
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      setPadding(16, 12, 16, 12)
+                      setBackgroundColor(Color.rgb(28, 32, 42))
+                  }
+
+                  val title = TextView(this).apply {
+                      text = "ZeroCost Keyboard"
+                      textSize = 20f
+                      setTextColor(Color.WHITE)
+                      gravity = Gravity.CENTER
+                  }
+                  root.addView(title)
+
+                  preview = TextView(this).apply {
+                      text = "Genera un texto para insertarlo"
+                      textSize = 16f
+                      setTextColor(Color.WHITE)
+                      gravity = Gravity.CENTER
+                      setPadding(4, 14, 4, 14)
+                  }
+                  root.addView(preview)
+
+                  status = TextView(this).apply {
+                      text = "Todo se genera localmente"
+                      textSize = 12f
+                      setTextColor(Color.LTGRAY)
+                      gravity = Gravity.CENTER
+                  }
+                  root.addView(status)
+
+                  addButton(root, "Generar usuario") {
+                      pendingText = makeUsername()
+                      preview.text = pendingText
+                      status.text = "Usuario listo para insertar"
+                  }
+
+                  addButton(root, "Generar contraseña segura") {
+                      pendingText = makePassword()
+                      preview.text = pendingText
+                      status.text = "Contraseña lista para insertar"
+                  }
+
+                  addButton(root, "Insertar en el campo activo") {
+                      val connection: InputConnection? = currentInputConnection
+                      if (connection != null && pendingText.isNotEmpty()) {
+                          connection.commitText(pendingText, 1)
+                          pendingText = ""
+                          preview.text = "Texto insertado"
+                          status.text = "Genera otro texto cuando lo necesites"
+                      } else {
+                          status.text = "Genera un texto primero"
+                      }
+                  }
+
+                  return root
+              }
+
+              private fun addButton(
+                  root: LinearLayout,
+                  label: String,
+                  action: () -> Unit
+              ) {
+                  val button = Button(this).apply {
+                      text = label
+                      isAllCaps = false
+                      setOnClickListener { action() }
+                  }
+                  root.addView(
+                      button,
+                      LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                  )
+              }
+
+              private fun makeUsername(): String {
+                  val first = listOf(
+                      "luna", "nube", "pixel", "nexo", "brisa",
+                      "cobre", "delta", "kiwi", "nova", "rayo",
+                      "zen", "eco", "astro", "coral"
+                  )
+                  val second = listOf(
+                      "azul", "verde", "sol", "luz", "fox",
+                      "wave", "star", "cloud", "fire", "sky"
+                  )
+                  return first[rng.nextInt(first.size)] +
+                      second[rng.nextInt(second.size)] +
+                      (100 + rng.nextInt(900)).toString()
+              }
+
+              private fun makePassword(): String {
+                  val chars =
+                      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#\$%&*-_+"
+                  return (1..20).map {
+                      chars[rng.nextInt(chars.length)]
+                  }.joinToString("")
+              }
+          }
+          EOF
+
+      - name: Download Gradle
+        run: |
+          curl -fsSL \
+            https://services.gradle.org/distributions/gradle-8.9-bin.zip \
+            -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
+
+      - name: Compile APK
+        run: /tmp/gradle-8.9/bin/gradle --no-daemon assembleDebug
+
+      - name: Publish APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZeroCost-Keyboard-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          
